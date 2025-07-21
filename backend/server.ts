@@ -352,6 +352,38 @@ app.post('/api/subscription/validate', async (req, res) => {
 // ===== PROTECTED ROUTES =====
 app.use('/api', requireAuth);
 
+// Test specific router IP (debugging endpoint)
+app.get('/api/router/test-ip/:ip', async (req, res) => {
+  try {
+    const { ip } = req.params;
+    
+    console.log(`🔧 Manually testing router at ${ip}...`);
+    
+    // Test the specific IP with detailed logging
+    const isConnected = await NetworkScanService.testConnection(ip);
+    
+    res.json({
+      success: true,
+      data: {
+        ip,
+        isAccessible: isConnected,
+        tested: true,
+      },
+      message: isConnected 
+        ? `Router at ${ip} is accessible` 
+        : `Router at ${ip} is not accessible`,
+    });
+
+  } catch (error) {
+    console.error('Test specific IP error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to test router IP',
+      details: getErrorMessage(error),
+    });
+  }
+});
+
 // Discover Router on Network
 app.get('/api/router/discover', async (req, res) => {
   try {
