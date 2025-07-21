@@ -1,6 +1,6 @@
 // ===== src/services/router-ai/speed-service.ts =====
 import { Agent } from 'browser-use';
-import { getGeminiModel } from '../../config/llm.js';
+import { getGeminiModel } from '../../config/gemini.js';
 import { BaseRouterService, RouterActionResult } from './base-service.js';
 import { RouterLoginService } from './login-service.js';
 

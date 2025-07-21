@@ -1,4 +1,5 @@
-mport { chromium, Browser, Page } from 'playwright';
+// ===== src/services/base-service.ts =====
+import { chromium, Browser, Page } from 'playwright';
 
 export interface RouterActionResult {
   success: boolean;

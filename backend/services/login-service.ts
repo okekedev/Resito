@@ -1,6 +1,6 @@
 // ===== src/services/router-ai/login-service.ts =====
 import { Agent } from 'browser-use';
-import { getGeminiModel } from '../../config/llm.js';
+import { getGeminiModel } from '../../config/gemini.js';
 import { BaseRouterService, RouterActionResult } from './base-service.js';
 
 export class RouterLoginService extends BaseRouterService {
