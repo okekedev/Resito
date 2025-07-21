@@ -1,5 +1,6 @@
 // ===== src/services/base-service.ts =====
-import { chromium, Browser, Page } from 'playwright';
+import { Stagehand } from '@browserbasehq/stagehand';
+import { z } from 'zod';
 
 export interface RouterActionResult {
   success: boolean;
@@ -10,41 +11,58 @@ export interface RouterActionResult {
 }
 
 export abstract class BaseRouterService {
-  protected browser: Browser | null = null;
-  protected page: Page | null = null;
+  protected stagehand: Stagehand | null = null;
 
   async initialize(): Promise<void> {
-    if (!this.browser) {
-      this.browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-        ],
+    if (!this.stagehand) {
+      this.stagehand = new Stagehand({
+        env: 'BROWSERBASE',
+        apiKey: process.env.BROWSERBASE_API_KEY,
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        // Alternative: run locally
+        // env: 'LOCAL',
       });
-    }
 
-    if (!this.page) {
-      this.page = await this.browser.newPage();
-      await this.page.setViewportSize({ width: 1280, height: 720 });
+      await this.stagehand.init();
     }
   }
 
   async cleanup(): Promise<void> {
-    if (this.page) {
-      await this.page.close();
-      this.page = null;
-    }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+    if (this.stagehand) {
+      await this.stagehand.close();
+      this.stagehand = null;
     }
   }
 
   protected async navigateToRouter(ipAddress: string): Promise<void> {
-    await this.page!.goto(`http://${ipAddress}`, { timeout: 10000 });
-    await this.page!.waitForLoadState('networkidle');
+    if (!this.stagehand) {
+      throw new Error('Stagehand not initialized');
+    }
+
+    // Use Playwright for reliable navigation
+    const page = this.stagehand.page;
+    await page.goto(`http://${ipAddress}`, { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+  }
+
+  protected async performAIAction(instruction: string): Promise<void> {
+    if (!this.stagehand) {
+      throw new Error('Stagehand not initialized');
+    }
+
+    // Use AI for complex navigation
+    await this.stagehand.page.act(instruction);
+  }
+
+  protected async extractData<T>(instruction: string, schema: z.ZodSchema<T>): Promise<T> {
+    if (!this.stagehand) {
+      throw new Error('Stagehand not initialized');
+    }
+
+    // Use AI to extract structured data
+    return await this.stagehand.page.extract({
+      instruction,
+      schema,
+    });
   }
 }

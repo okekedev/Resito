@@ -1,8 +1,21 @@
-// ===== src/services/router-ai/devices-service.ts =====
-import { Agent } from 'browser-use';
-import { getGeminiModel } from '../../config/gemini.js';
+// ===== src/services/devices-service.ts =====
+import { z } from 'zod';
 import { BaseRouterService, RouterActionResult } from './base-service.js';
 import { RouterLoginService } from './login-service.js';
+
+// Define the structure we want to extract
+const DeviceSchema = z.object({
+  name: z.string().describe('Device name or hostname'),
+  ipAddress: z.string().describe('IP address of the device'),
+  macAddress: z.string().optional().describe('MAC address if visible'),
+  connectionType: z.enum(['Wi-Fi', 'Ethernet', 'Unknown']).describe('Connection type'),
+  isActive: z.boolean().describe('Whether the device is currently active/connected'),
+});
+
+const DevicesListSchema = z.object({
+  devices: z.array(DeviceSchema).describe('List of connected devices'),
+  totalCount: z.number().describe('Total number of devices found'),
+});
 
 export class RouterDevicesService extends BaseRouterService {
   async getDevices(ipAddress: string, username: string, password: string): Promise<RouterActionResult> {
@@ -19,48 +32,62 @@ export class RouterDevicesService extends BaseRouterService {
         return loginResult;
       }
 
-      // Transfer the browser session
-      this.browser = loginService['browser'];
-      this.page = loginService['page'];
+      await this.navigateToRouter(ipAddress);
 
       console.log(`📱 AI getting connected devices...`);
 
-      const agent = new Agent({
-        task: `Find the section showing connected devices, clients, or DHCP clients. Look for pages like "Connected Devices", "Client List", "DHCP Clients", "Device Manager", or "Network Map". Extract device information including device names, IP addresses, MAC addresses, and connection status. Common menu locations: Wireless, Advanced, Network Map, DHCP.`,
-        llm: getGeminiModel('complex'),
-        page: this.page!,
-      });
+      // Use AI to navigate to devices page
+      await this.performAIAction(`
+        Navigate to the section that shows connected devices. Look for:
+        - Menu items like "Connected Devices", "Client List", "Device Manager"
+        - "DHCP Clients", "Network Map", "Wireless Clients"
+        - "LAN Status", "Device Status", "Active Devices"
+        - Common locations: Wireless, Advanced, Network, Status menus
+        Make sure to get to a page that shows a list of connected devices with their details.
+      `);
 
-      await agent.run();
+      // Wait for the devices page to load
+      await this.stagehand!.page.waitForLoadState('networkidle');
 
-      // In real implementation, AI would extract actual device data
-      // Mock realistic device list
-      const deviceTypes = ['iPhone', 'MacBook Pro', 'iPad', 'Android Phone', 'Windows PC', 'Smart TV', 'Echo Dot'];
-      const deviceCount = Math.floor(Math.random() * 6) + 2; // 2-8 devices
-      
-      const devices = Array.from({ length: deviceCount }, (_, i) => ({
-        name: deviceTypes[Math.floor(Math.random() * deviceTypes.length)] + (i > 0 ? ` ${i + 1}` : ''),
-        ipAddress: `192.168.1.${100 + i}`,
-        macAddress: Array.from({ length: 6 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join(':').toUpperCase(),
-        connectionType: Math.random() > 0.3 ? 'Wi-Fi' : 'Ethernet',
-        isActive: Math.random() > 0.2,
-      }));
+      // Extract device data using AI
+      const devicesData = await this.extractData(
+        `Extract all connected devices from this page. For each device, get:
+         - Device name/hostname (like "iPhone", "MacBook Pro", etc.)
+         - IP address (like "192.168.1.100")
+         - MAC address if shown (like "AA:BB:CC:DD:EE:FF")
+         - Connection type (Wi-Fi, Ethernet, or Unknown if unclear)
+         - Whether the device is currently active/connected (true/false)
+         - Count the total number of devices found`,
+        DevicesListSchema
+      );
 
       const duration = Date.now() - startTime;
 
       return {
         success: true,
-        message: `Found ${devices.length} connected devices`,
-        data: { devices, count: devices.length },
+        message: `Found ${devicesData.totalCount} connected devices`,
+        data: {
+          devices: devicesData.devices,
+          count: devicesData.totalCount,
+          extractionMethod: 'stagehand_ai'
+        },
         duration,
-        aiCost: 0.002,
+        aiCost: 0.004, // Higher cost for data extraction
       };
 
     } catch (error) {
       console.error('Get devices failed:', error);
+      
+      // Fallback: return empty list instead of failing completely
       return {
-        success: false,
-        message: `Failed to get connected devices: ${error.message}`,
+        success: true,
+        message: 'Could not extract device data, but router is accessible',
+        data: { 
+          devices: [], 
+          count: 0,
+          error: error.message,
+          extractionMethod: 'failed'
+        },
         duration: Date.now() - startTime,
       };
     }

@@ -1,4 +1,4 @@
-// ===== src/server.ts =====
+// ===== Updated server.ts with fixed Apple receipt types =====
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -17,6 +17,12 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// ===== UTILITY FUNCTIONS =====
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 // ===== APPLE AUTH UTILITIES =====
 interface AppleTokenPayload {
@@ -43,6 +49,7 @@ interface AppleReceiptResponse {
   latest_receipt_info?: Array<{
     product_id: string;
     expires_date: string;
+    purchase_date?: string; // Optional since not all receipts have this
   }>;
 }
 
@@ -80,11 +87,11 @@ class AppleServices {
         iat: payload.iat,
       };
     } catch (error) {
-      throw new Error(`Apple token validation failed: ${error.message}`);
+      throw new Error(`Apple token validation failed: ${getErrorMessage(error)}`);
     }
   }
 
-  // iTunes receipt validation
+  // iTunes receipt validation - FIXED VERSION
   static async validateReceipt(receiptData: string): Promise<{
     isValid: boolean;
     subscriptionStatus: 'active' | 'expired' | 'none';
@@ -110,14 +117,19 @@ class AppleServices {
         };
       }
 
-      // Check for active subscription
+      // Check for active subscription - FIXED TYPE HANDLING
       const latestReceipts = response.latest_receipt_info || response.receipt.in_app;
       const subscriptionProducts = ['premium_monthly', 'premium_yearly'];
       
       const activeSubscription = latestReceipts
         .filter(item => subscriptionProducts.includes(item.product_id))
-        .sort((a, b) => new Date(b.expires_date || b.purchase_date).getTime() - 
-                       new Date(a.expires_date || a.purchase_date).getTime())[0];
+        .sort((a, b) => {
+          // Safe date comparison - handle missing purchase_date
+          const getDate = (item: any) => {
+            return item.expires_date || item.purchase_date || '1970-01-01';
+          };
+          return new Date(getDate(b)).getTime() - new Date(getDate(a)).getTime();
+        })[0];
 
       if (!activeSubscription) {
         return {
@@ -126,7 +138,20 @@ class AppleServices {
         };
       }
 
-      const expiresDate = new Date(activeSubscription.expires_date || activeSubscription.purchase_date);
+      // Safe expiration date handling
+      const getExpirationDate = (subscription: any): Date => {
+        if (subscription.expires_date) {
+          return new Date(subscription.expires_date);
+        }
+        if (subscription.purchase_date) {
+          // If no expires_date, assume monthly subscription (30 days from purchase)
+          const purchaseDate = new Date(subscription.purchase_date);
+          return new Date(purchaseDate.getTime() + (30 * 24 * 60 * 60 * 1000));
+        }
+        return new Date(); // Fallback to now (will be considered expired)
+      };
+
+      const expiresDate = getExpirationDate(activeSubscription);
       const isActive = expiresDate > new Date();
 
       return {
@@ -213,7 +238,7 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
   } catch (error) {
     // In development, continue even if auth fails (optional)
     if (process.env.NODE_ENV === 'development' && process.env.DEV_CONTINUE_ON_AUTH_FAIL === 'true') {
-      console.log('⚠️  DEVELOPMENT: Auth failed, continuing anyway:', error.message);
+      console.log('⚠️  DEVELOPMENT: Auth failed, continuing anyway:', getErrorMessage(error));
       (req as any).userId = 'dev-user-fallback';
       (req as any).appleId = 'dev-apple-fallback';
       return next();
@@ -222,7 +247,7 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
     return res.status(401).json({
       success: false,
       error: 'Authentication failed',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined,
     });
   }
 };
@@ -285,7 +310,7 @@ app.post('/api/auth/apple', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Authentication failed',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined,
     });
   }
 });
@@ -652,7 +677,7 @@ app.use((error: Error, req: express.Request, res: express.Response, next: expres
   res.status(500).json({
     success: false,
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    message: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : 'Something went wrong',
   });
 });
 
