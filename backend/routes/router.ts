@@ -3,6 +3,7 @@ import express from 'express';
 import { NetworkScanService } from '../services/network-scan.js';
 import { RouterAIService } from '../services/index.js';
 import { RouterModel } from '../models/router.js';
+import { SmartRouterAI } from '../services/smart-router-ai.js';
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -328,6 +329,99 @@ router.post('/speed-test', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Speed test failed',
+    });
+  }
+});
+
+// Smart Router Analysis & Auto-Login (AI-powered)
+router.post('/smart-connect', async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const { ipAddress } = req.body;
+
+    if (!ipAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Router IP address is required',
+      });
+    }
+
+    console.log(`🧠 Starting smart AI analysis for router at ${ipAddress}`);
+
+    // Use AI to analyze router and find working credentials
+    const result = await SmartRouterAI.smartLogin(ipAddress);
+
+    if (result.success && result.data?.workingCredentials) {
+      // Save the working credentials to database
+      try {
+        const router = await RouterModel.upsert({
+          userId,
+          ipAddress,
+          username: result.data.workingCredentials.username,
+          password: result.data.workingCredentials.password,
+        });
+
+        console.log(`✅ Saved working credentials for ${result.data.brand} router`);
+      } catch (dbError) {
+        console.log('⚠️ Could not save to database, but login was successful');
+      }
+    }
+
+    res.json({
+      success: result.success,
+      data: result.data,
+      message: result.message,
+      meta: {
+        aiCost: result.aiCost,
+        duration: result.duration,
+        analysisType: 'smart_ai_detection',
+      },
+    });
+
+  } catch (error) {
+    console.error('Smart connect error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Smart connection failed',
+      details: getErrorMessage(error),
+    });
+  }
+});
+
+// Router Brand Analysis Only (for testing)
+router.post('/analyze', async (req, res) => {
+  try {
+    const { ipAddress } = req.body;
+
+    if (!ipAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Router IP address is required',
+      });
+    }
+
+    console.log(`🤖 Analyzing router interface at ${ipAddress}`);
+
+    // Just analyze, don't test credentials
+    const result = await SmartRouterAI.analyzeAndSuggestCredentials(ipAddress);
+
+    res.json({
+      success: result.success,
+      data: result.data,
+      message: result.message,
+      meta: {
+        aiCost: result.aiCost,
+        duration: result.duration,
+        analysisType: 'interface_analysis_only',
+      },
+    });
+
+  } catch (error) {
+    console.error('Router analysis error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Router analysis failed',
+      details: getErrorMessage(error),
     });
   }
 });

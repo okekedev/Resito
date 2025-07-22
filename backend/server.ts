@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 // Import route modules
 import authRoutes, { AppleServices } from './routes/auth.js';
 import routerRoutes from './routes/router.js';
-import subscriptionRoutes from './routes/subscription.js';
+import subscriptionRoutes from './routes/subscription.js';  // ✅ FIXED
 
 // Import models (for auth middleware)
 import { UserModel } from './models/user.js';
