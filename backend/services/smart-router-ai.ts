@@ -1,6 +1,9 @@
-// ===== services/smart-router-ai.ts =====
+// ===== services/smart-router-ai.ts - FIXED for API Key Issues =====
 import fetch from 'node-fetch';
-import { getGeminiModel } from '../config/gemini.js';
+import dotenv from 'dotenv';
+
+// Ensure environment variables are loaded
+dotenv.config();
 
 export interface SmartRouterResult {
   success: boolean;
@@ -24,13 +27,63 @@ export interface SmartRouterResult {
 
 export class SmartRouterAI {
   /**
+   * Direct Gemini API call with proper error handling
+   */
+  private static async callGeminiDirectly(prompt: string): Promise<any> {
+    const apiKey = process.env.GOOGLE_API_KEY;
+    
+    console.log('🔑 API Key Debug in SmartRouterAI:');
+    console.log('- API Key present:', !!apiKey);
+    console.log('- API Key length:', apiKey?.length);
+    console.log('- API Key starts with:', apiKey?.substring(0, 10));
+    
+    if (!apiKey) {
+      throw new Error('GOOGLE_API_KEY environment variable not found');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    
+    const body = {
+      contents: [{
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        thinkingConfig: {
+          thinkingBudget: 1024  // Balanced thinking for router analysis
+        }
+      }
+    };
+
+    console.log('🤖 Calling Gemini API directly...');
+    console.log('🔗 URL:', url.replace(apiKey, 'API_KEY_HIDDEN'));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log('❌ Gemini API Error Response:', errorText);
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Gemini API Success!');
+    return data;
+  }
+
+  /**
    * Let AI analyze the router and suggest the best credentials to try
    */
   static async analyzeAndSuggestCredentials(ipAddress: string): Promise<SmartRouterResult> {
     const startTime = Date.now();
     
     try {
-      console.log(`🤖 AI analyzing router at ${ipAddress}...`);
+      console.log(`🤖 AI analyzing router at ${ipAddress} with Gemini 2.5 Flash...`);
 
       // Fetch the router's login page
       const controller = new AbortController();
@@ -48,9 +101,7 @@ export class SmartRouterAI {
       const html = await response.text();
       const headers = Object.fromEntries(response.headers.entries());
 
-      // Let AI analyze everything and suggest credentials
-      const model = getGeminiModel('complex');
-      
+      // Use Gemini 2.5 Flash with optimized prompt
       const prompt = `You are a router security expert. Analyze this router's login page and identify the brand, then suggest the 3-5 most likely default credential combinations to try.
 
 ROUTER LOGIN PAGE:
@@ -83,8 +134,10 @@ Respond in this JSON format:
   ]
 }`;
 
-      const result = await model.generateContent(prompt);
-      const aiResponse = result.response.text();
+      // Call Gemini directly with proper error handling
+      const geminiResponse = await this.callGeminiDirectly(prompt);
+      
+      const aiResponse = geminiResponse.candidates[0].content.parts[0].text;
       
       // Parse AI response
       let analysis;
@@ -97,6 +150,7 @@ Respond in this JSON format:
         }
       } catch (parseError) {
         console.log('🤖 AI parsing failed, using fallback');
+        console.log('AI Response was:', aiResponse);
         analysis = {
           brand: "Unknown",
           confidence: 50,
@@ -108,7 +162,7 @@ Respond in this JSON format:
         };
       }
 
-      console.log(`🎯 AI detected: ${analysis.brand} (${analysis.confidence}% confidence)`);
+      console.log(`🎯 Gemini 2.5 Flash detected: ${analysis.brand} (${analysis.confidence}% confidence)`);
       
       return {
         success: true,
@@ -119,11 +173,11 @@ Respond in this JSON format:
           suggestedCredentials: analysis.credentials,
         },
         duration: Date.now() - startTime,
-        aiCost: 0.02, // Rough estimate
+        aiCost: 0.01, // Gemini 2.5 Flash is very cost-effective
       };
 
-    } catch (error) {
-      console.error('🤖 AI analysis failed:', error);
+    } catch (error: any) {
+      console.error('🤖 Gemini 2.5 Flash analysis failed:', error);
       
       return {
         success: false,
@@ -177,7 +231,7 @@ Respond in this JSON format:
         details: `HTTP ${response.status} - credentials rejected` 
       };
 
-    } catch (error) {
+    } catch (error: any) {
       return { 
         success: false, 
         details: `Connection failed: ${error.message}` 
@@ -192,14 +246,14 @@ Respond in this JSON format:
     const startTime = Date.now();
     
     try {
-      // Step 1: Get AI suggestions
+      // Step 1: Get AI suggestions from Gemini 2.5 Flash
       const analysis = await this.analyzeAndSuggestCredentials(ipAddress);
       
       if (!analysis.success || !analysis.data?.suggestedCredentials) {
         return analysis;
       }
 
-      console.log(`🔐 Testing ${analysis.data.suggestedCredentials.length} AI-suggested credentials...`);
+      console.log(`🔐 Testing ${analysis.data.suggestedCredentials.length} Gemini 2.5 Flash suggested credentials...`);
 
       // Step 2: Try each suggested credential
       for (const cred of analysis.data.suggestedCredentials) {
@@ -208,7 +262,7 @@ Respond in this JSON format:
         const testResult = await this.testCredentials(ipAddress, cred.username, cred.password);
         
         if (testResult.success) {
-          console.log(`✅ Success! Working credentials found`);
+          console.log(`✅ Success! Working credentials found via Gemini 2.5 Flash`);
           
           return {
             success: true,
@@ -223,7 +277,7 @@ Respond in this JSON format:
               suggestedCredentials: analysis.data.suggestedCredentials,
             },
             duration: Date.now() - startTime,
-            aiCost: 0.02,
+            aiCost: 0.01,
           };
         }
         
@@ -240,15 +294,29 @@ Respond in this JSON format:
           suggestedCredentials: analysis.data.suggestedCredentials,
         },
         duration: Date.now() - startTime,
-        aiCost: 0.02,
+        aiCost: 0.01,
       };
 
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         message: `Smart login failed: ${error.message}`,
         duration: Date.now() - startTime,
       };
+    }
+  }
+
+  /**
+   * Test API key functionality
+   */
+  static async testApiKey(): Promise<void> {
+    console.log('🧪 Testing API key functionality...');
+    
+    try {
+      const result = await this.callGeminiDirectly('Say "API key test successful" if you can read this.');
+      console.log('✅ API Key Test Result:', result.candidates[0].content.parts[0].text);
+    } catch (error: any) {
+      console.log('❌ API Key Test Failed:', error.message);
     }
   }
 }
